@@ -1,0 +1,104 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+/**
+ * @title P2PTokenSwap
+ * @dev Allows users to create swap offers (OTC) for any ERC20 tokens.
+ * This is a trustless way to trade Token A for Token B without a centralized exchange.
+ */
+contract P2PTokenSwap is ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
+    struct SwapOffer {
+        address initiator;      // The person who created the swap
+        address tokenGive;      // The token initiator is offering
+        uint256 amountGive;     // Amount of tokenGive offered
+        address tokenGet;       // The token initiator wants in return
+        uint256 amountGet;      // Amount of tokenGet required
+        bool isOpen;            // Status of the swap
+    }
+
+    // A mapping to store all swaps by ID
+    mapping(uint256 => SwapOffer) public swaps;
+    uint256 public swapIdCounter;
+
+    // Events to track activity
+    event SwapCreated(uint256 indexed swapId, address indexed initiator, address tokenGive, uint256 amountGive, address tokenGet, uint256 amountGet);
+    event SwapExecuted(uint256 indexed swapId, address indexed filler);
+    event SwapCanceled(uint256 indexed swapId);
+
+    /**
+     * @notice Creates a new swap offer.
+     * @dev User must approve this contract to spend 'amountGive' of 'tokenGive' BEFORE calling this.
+     */
+    function createSwap(
+        address _tokenGive,
+        uint256 _amountGive,
+        address _tokenGet,
+        uint256 _amountGet
+    ) external nonReentrant returns (uint256) {
+        require(_amountGive > 0, "Amount give must be > 0");
+        require(_amountGet > 0, "Amount get must be > 0");
+
+        // Transfer tokens from User to Contract (Escrow)
+        IERC20(_tokenGive).safeTransferFrom(msg.sender, address(this), _amountGive);
+
+        uint256 newSwapId = swapIdCounter++;
+
+        swaps[newSwapId] = SwapOffer({
+            initiator: msg.sender,
+            tokenGive: _tokenGive,
+            amountGive: _amountGive,
+            tokenGet: _tokenGet,
+            amountGet: _amountGet,
+            isOpen: true
+        });
+
+        emit SwapCreated(newSwapId, msg.sender, _tokenGive, _amountGive, _tokenGet, _amountGet);
+        return newSwapId;
+    }
+
+    /**
+     * @notice Fulfills an existing swap offer.
+     * @dev User must approve this contract to spend 'amountGet' of 'tokenGet' BEFORE calling this.
+     * @param _swapId The ID of the swap to fulfill.
+     */
+    function executeSwap(uint256 _swapId) external nonReentrant {
+        SwapOffer storage swap = swaps[_swapId];
+
+        require(swap.isOpen, "Swap is not open");
+        require(swap.initiator != msg.sender, "Cannot swap with yourself");
+
+        // 1. Mark swap as closed BEFORE transfers to prevent reentrancy
+        swap.isOpen = false;
+
+        // 2. Transfer the "Get" token from the Filler (msg.sender) to the Initiator
+        IERC20(swap.tokenGet).safeTransferFrom(msg.sender, swap.initiator, swap.amountGet);
+
+        // 3. Transfer the "Give" token from the Contract to the Filler
+        IERC20(swap.tokenGive).safeTransfer(msg.sender, swap.amountGive);
+
+        emit SwapExecuted(_swapId, msg.sender);
+    }
+
+    /**
+     * @notice Allows the creator to cancel their swap and retrieve their tokens.
+     */
+    function cancelSwap(uint256 _swapId) external nonReentrant {
+        SwapOffer storage swap = swaps[_swapId];
+
+        require(swap.isOpen, "Swap is not open");
+        require(swap.initiator == msg.sender, "Only initiator can cancel");
+
+        swap.isOpen = false;
+
+        // Refund tokens to the initiator
+        IERC20(swap.tokenGive).safeTransfer(swap.initiator, swap.amountGive);
+
+        emit SwapCanceled(_swapId);
+    }
+}
