@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+/**
+ * @title TokenVesting
+ * @dev Manages the gradual release of tokens to beneficiaries (Team, Advisors, Investors).
+ */
+contract TokenVesting is Ownable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
+    struct VestingSchedule {
+        uint256 totalAmount;    // Total tokens assigned to this user
+        uint256 amountReleased; // How many have been claimed so far
+        uint256 startTime;      // When vesting starts
+        uint256 cliffDuration;  // Delay before ANY tokens are released
+        uint256 duration;       // Total duration of the vesting period
+    }
+
+    IERC20 public immutable token;
+    
+    // Maps User Address -> Vesting Schedule
+    mapping(address => VestingSchedule) public schedules;
+    
+    // Total tokens required to back all schedules
+    uint256 public totalTokensLocked;
+
+    event ScheduleCreated(address indexed beneficiary, uint256 amount, uint256 start, uint256 cliff, uint256 duration);
+    event TokensReleased(address indexed beneficiary, uint256 amount);
+
+    constructor(address _token) Ownable(msg.sender) {
+        token = IERC20(_token);
+    }
+
+    /**
+     * @notice Create a vesting schedule for a beneficiary.
+     * @dev The contract MUST hold enough tokens before calling this.
+     * @param _beneficiary Who gets the tokens.
+     * @param _amount Total tokens to vest.
+     * @param _start Unix timestamp for start.
+     * @param _cliffDuration Seconds before first release (
