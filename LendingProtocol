@@ -1,0 +1,137 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+/**
+ * @title SimpleLendingProtocol
+ * @dev A pool where users can supply Liquidity (USDC) and borrow it by putting up Collateral (ETH/WETH).
+ */
+contract SimpleLendingProtocol is ReentrancyGuard, Ownable {
+    using SafeERC20 for IERC20;
+
+    IERC20 public immutable lendingToken;     // The token being lent/borrowed (e.g., USDC)
+    IERC20 public immutable collateralToken;  // The token used as collateral (e.g., WETH)
+
+    // Constants
+    uint256 public constant LIQUIDATION_THRESHOLD = 80; // 80% LTV (Loan to Value)
+    uint256 public constant LIQUIDATION_BONUS = 5;      // 5% bonus for liquidators
+    uint256 public constant BASE_RATE = 5e16;           // 5% base interest rate per year
+    uint256 public constant MULTIPLIER_PER_YEAR = 2e16; // Utilization multiplier
+
+    // State
+    mapping(address => uint256) public collateralBalance; // User -> Collateral Amount
+    mapping(address => uint256) public borrowBalance;     // User -> Borrow Amount
+    
+    uint256 public totalLendingTokenSupply;
+    uint256 public totalBorrowed;
+
+    // Simulated Oracle Price (For demo purposes only)
+    // In production, use Chainlink Aggregators
+    uint256 public collateralPriceInLendingToken = 2000; // 1 Collateral (ETH) = 2000 Lending Tokens (USDC)
+
+    constructor(address _lendingToken, address _collateralToken, address _initialOwner) 
+        Ownable(_initialOwner) 
+    {
+        lendingToken = IERC20(_lendingToken);
+        collateralToken = IERC20(_collateralToken);
+    }
+
+    // ==========================================
+    //            SUPPLIER FUNCTIONS
+    // ==========================================
+
+    /**
+     * @notice Supply tokens to the pool to earn interest.
+     * @dev For simplicity, this demo does not mint cTokens/aTokens, but tracks share effectively.
+     */
+    function supply(uint256 amount) external nonReentrant {
+        require(amount > 0, "Amount must be > 0");
+        lendingToken.safeTransferFrom(msg.sender, address(this), amount);
+        totalLendingTokenSupply += amount;
+    }
+
+    /**
+     * @notice Withdraw supplied tokens.
+     */
+    function withdraw(uint256 amount) external nonReentrant {
+        require(amount > 0, "Amount must be > 0");
+        require(amount <= totalLendingTokenSupply, "Insufficient pool liquidity");
+        
+        // In a real app, we would check if the user has enough 'shares' to withdraw.
+        // For this simplified demo, we assume the pool has enough liquidity.
+        lendingToken.safeTransfer(msg.sender, amount);
+        totalLendingTokenSupply -= amount;
+    }
+
+    // ==========================================
+    //            BORROWER FUNCTIONS
+    // ==========================================
+
+    /**
+     * @notice Deposit collateral (e.g., WETH) to increase borrowing power.
+     */
+    function addCollateral(uint256 amount) external nonReentrant {
+        require(amount > 0, "Amount must be > 0");
+        collateralToken.safeTransferFrom(msg.sender, address(this), amount);
+        collateralBalance[msg.sender] += amount;
+    }
+
+    /**
+     * @notice Withdraw collateral (only if debt remains healthy).
+     */
+    function removeCollateral(uint256 amount) external nonReentrant {
+        require(amount > 0, "Amount must be > 0");
+        require(collateralBalance[msg.sender] >= amount, "Insufficient collateral");
+
+        // Check health factor after withdrawal
+        uint256 collateralRemaining = collateralBalance[msg.sender] - amount;
+        uint256 maxBorrow = _calculateMaxBorrow(collateralRemaining);
+        
+        require(borrowBalance[msg.sender] <= maxBorrow, "Withdrawal would cause liquidation");
+
+        collateralBalance[msg.sender] -= amount;
+        collateralToken.safeTransfer(msg.sender, amount);
+    }
+
+    /**
+     * @notice Borrow lending tokens against collateral.
+     */
+    function borrow(uint256 amount) external nonReentrant {
+        require(amount > 0, "Amount must be > 0");
+        require(lendingToken.balanceOf(address(this)) >= amount, "Not enough liquidity in pool");
+
+        // Calculate max borrow limit
+        uint256 maxBorrow = _calculateMaxBorrow(collateralBalance[msg.sender]);
+        require(borrowBalance[msg.sender] + amount <= maxBorrow, "Insufficient collateral value");
+
+        borrowBalance[msg.sender] += amount;
+        totalBorrowed += amount;
+        
+        lendingToken.safeTransfer(msg.sender, amount);
+    }
+
+    /**
+     * @notice Repay borrowed tokens.
+     */
+    function repay(uint256 amount) external nonReentrant {
+        require(amount > 0, "Amount must be > 0");
+        require(borrowBalance[msg.sender] >= amount, "Overpaying debt");
+
+        lendingToken.safeTransferFrom(msg.sender, address(this), amount);
+        borrowBalance[msg.sender] -= amount;
+        totalBorrowed -= amount;
+    }
+
+    // ==========================================
+    //            INTERNAL / MATH
+    // ==========================================
+
+    /**
+     * @dev Calculates maximum amount user can borrow based on their collateral.
+     * Value = (CollateralAmount * Price * LTV) / 100
+     */
+    function _calculateMaxBorrow(uint256 collateral
