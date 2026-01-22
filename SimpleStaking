@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+/**
+ * @title SimpleStaking
+ * @dev Users stake a Staking Token to earn a Reward Token.
+ * Rewards are calculated based on time staked.
+ */
+contract SimpleStaking is ReentrancyGuard, Ownable {
+    IERC20 public stakingToken;
+    IERC20 public rewardsToken;
+
+    // Reward rate: How many tokens distributed per second total
+    uint256 public constant REWARD_RATE = 100; 
+    
+    uint256 public lastUpdateTime;
+    uint256 public rewardPerTokenStored;
+
+    mapping(address => uint256) public userRewardPerTokenPaid;
+    mapping(address => uint256) public rewards;
+
+    uint256 private _totalSupply;
+    mapping(address => uint256) private _balances;
+
+    event Staked(address indexed user, uint256 amount);
+    event Withdrawn(address indexed user, uint256 amount);
+    event RewardPaid(address indexed user, uint256 reward);
+
+    constructor(address _stakingToken, address _rewardsToken) Ownable(msg.sender) {
+        stakingToken = IERC20(_stakingToken);
+        rewardsToken = IERC20(_rewardsToken);
+    }
+
+    /**
+     * @dev Modifier to update rewards for a user before any action.
+     * This ensures the math is always up to date when balances change.
+     */
+    modifier updateReward(address account) {
+        rewardPerTokenStored = rewardPerToken();
+        lastUpdateTime = block.timestamp;
+
+        if (account != address(0)) {
+            rewards[account] = earned(account);
+            userRewardPerTokenPaid[account] = rewardPerTokenStored;
+        }
+        _;
+    }
+
+    /**
+     * @dev Calculates current reward per token globally.
+     */
+    function rewardPerToken() public view returns (uint256) {
+        if (_totalSupply == 0) {
+            return rewardPerTokenStored;
+        }
+        return rewardPerTokenStored + (((block.timestamp - lastUpdateTime) * REWARD_RATE * 1e18) / _totalSupply);
+    }
+
+    /**
+     * @dev Calculates how much a specific user has earned.
+     */
+    function earned(address account) public view returns (uint256) {
+        return
+            ((_balances[account] * (rewardPerToken() - userRewardPerTokenPaid[account])) / 1e18) +
+            rewards[account];
+    }
+
+    /**
+     * @notice Deposit tokens to start earning rewards.
+     */
+    function stake(uint
