@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+/**
+ * @title MyToken
+ * @dev A standard ERC20 Token with Minting and Burning capabilities.
+ */
+contract MyToken is ERC20, ERC20Burnable, Ownable {
+    
+    /**
+     * @param initialOwner The address that will own the contract and initial supply.
+     */
+    constructor(address initialOwner) 
+        ERC20("MyToken", "MTK") 
+        Ownable(initialOwner) 
+    {
+        // Mint 1 million tokens to the deployer immediately.
+        // 1,000,000 tokens * 10^18 (decimals)
+        _mint(msg.sender, 1000000 * 10 ** decimals());
+    }
+
+    /**
+     * @notice Creates new tokens and sends them to a specific address.
+     * @dev Only the contract owner can call this.
+     */
+    function mint(address to, uint256 amount) public onlyOwner {
+        _mint(to, amount);
+    }
+}
