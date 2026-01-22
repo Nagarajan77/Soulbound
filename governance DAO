@@ -1,0 +1,113 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+/**
+ * @title SimpleDAO
+ * @dev A governance contract where token holders vote to execute transactions.
+ */
+contract SimpleDAO is ReentrancyGuard {
+    
+    // The token used for voting power
+    IERC20 public immutable voteToken;
+
+    // Configuration
+    uint256 public constant MIN_VOTE_DELAY = 1 days; // Time to vote
+    uint256 public constant QUORUM_PERCENTAGE = 4;   // 4% of supply must vote for it to be valid
+
+    struct Proposal {
+        uint256 id;
+        address proposer;
+        string description;
+        address target;       // Contract to call
+        bytes data;           // Function data to call
+        uint256 voteCount;    // FOR votes
+        uint256 endTime;      // When voting closes
+        bool executed;
+    }
+
+    // Storage
+    uint256 public proposalCount;
+    mapping(uint256 => Proposal) public proposals;
+    mapping(uint256 => mapping(address => bool)) public hasVoted; // proposalId -> voter -> status
+
+    // Events
+    event ProposalCreated(uint256 indexed id, string description, uint256 endTime);
+    event Voted(uint256 indexed id, address indexed voter, uint256 weight);
+    event ProposalExecuted(uint256 indexed id);
+
+    constructor(address _voteToken) {
+        voteToken = IERC20(_voteToken);
+    }
+
+    /**
+     * @notice Create a new proposal.
+     * @param _target The contract address the DAO will interact with.
+     * @param _data The calldata (function signature + args) to execute.
+     * @param _description Text description of the proposal.
+     */
+    function createProposal(
+        address _target,
+        bytes calldata _data,
+        string calldata _description
+    ) external returns (uint256) {
+        // Optional: Check if proposer holds enough tokens to prevent spam
+        require(voteToken.balanceOf(msg.sender) > 0, "Must hold tokens to propose");
+
+        uint256 proposalId = proposalCount++;
+        
+        proposals[proposalId] = Proposal({
+            id: proposalId,
+            proposer: msg.sender,
+            description: _description,
+            target: _target,
+            data: _data,
+            voteCount: 0,
+            endTime: block.timestamp + MIN_VOTE_DELAY,
+            executed: false
+        });
+
+        emit ProposalCreated(proposalId, _description, block.timestamp + MIN_VOTE_DELAY);
+        return proposalId;
+    }
+
+    /**
+     * @notice Vote "Yes" on a proposal.
+     * @dev Voting power is determined by token balance at the moment of voting.
+     * (Note: Production DAOs often use 'Snapshots' (checkpoints) to prevent flash loan attacks).
+     */
+    function vote(uint256 _proposalId) external {
+        Proposal storage proposal = proposals[_proposalId];
+
+        require(block.timestamp < proposal.endTime, "Voting ended");
+        require(!hasVoted[_proposalId][msg.sender], "Already voted");
+        
+        uint256 weight = voteToken.balanceOf(msg.sender);
+        require(weight > 0, "No voting power");
+
+        hasVoted[_proposalId][msg.sender] = true;
+        proposal.voteCount += weight;
+
+        emit Voted(_proposalId, msg.sender, weight);
+    }
+
+    /**
+     * @notice Execute the proposal if it passed.
+     */
+    function executeProposal(uint256 _proposalId) external nonReentrant {
+        Proposal storage proposal = proposals[_proposalId];
+
+        require(block.timestamp >= proposal.endTime, "Voting still active");
+        require(!proposal.executed, "Already executed");
+        
+        // Check Quorum: Did enough people vote?
+        uint256 totalTokens = voteToken.totalSupply();
+        uint256 requiredVotes = (totalTokens * QUORUM_PERCENTAGE) / 100;
+        require(proposal.voteCount >= requiredVotes, "Quorum not reached");
+
+        proposal.executed = true;
+
+        // Execute the transaction
+        (bool success, ) = proposal.target.call(proposal
