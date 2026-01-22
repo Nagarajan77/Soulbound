@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+/**
+ * @title SimpleAMM
+ * @dev A simplified Uniswap V2-style AMM (Automated Market Maker).
+ * Implements x * y = k constant product formula.
+ */
+contract SimpleAMM is ReentrancyGuard {
+    IERC20 public immutable token0;
+    IERC20 public immutable token1;
+
+    uint256 public reserve0;
+    uint256 public reserve1;
+
+    uint256 public totalShares;
+    mapping(address => uint256) public balanceOf;
+
+    constructor(address _token0, address _token1) {
+        token0 = IERC20(_token0);
+        token1 = IERC20(_token1);
+    }
+
+    // ==========================================
+    //            LIQUIDITY FUNCTIONS
+    // ==========================================
+
+    /**
+     * @notice Add liquidity to the pool.
+     * @dev User deposits tokens and receives "Shares" (LP Tokens) representing their portion of the pool.
+     */
+    function addLiquidity(uint256 _amount0, uint256 _amount1) external nonReentrant returns (uint256 shares) {
+        // Pull tokens in
+        token0.transferFrom(msg.sender, address(this), _amount0);
+        token1.transferFrom(msg.sender, address(this), _amount1);
+
+        // Calculate shares to mint
+        // If first provider, shares = sqrt(x * y) - strict math omitted for simplicity, using geometric mean approximation
+        if (totalShares == 0) {
+            shares = _sqrt(_amount0 * _amount1);
+        } else {
+            // Proportional calculation: (AmountIn / Reserve) * TotalShares
+            // We take the smaller ratio to ensure penalties for providing unbalanced liquidity
+            uint256 share0 = (_amount0 * totalShares) / reserve0;
+            uint256 share1 = (_amount1 * totalShares) / reserve1;
+            shares = share0 < share1 ? share0 : share1;
+        }
+
+        require(shares > 0, "Shares must be > 0");
+        
+        // Mint shares
+        balanceOf[msg.sender] += shares;
+        totalShares += shares;
+
+        // Update reserves
+        _updateReserves(token0.balanceOf(address(this)), token1.balanceOf(address(this)));
+    }
+
+    /**
+     * @notice Burn shares to remove liquidity.
+     */
+    function removeLiquidity(uint256 _shares) external nonReentrant returns (uint256 amount0, uint256 amount1) {
+        require(balanceOf[msg.sender] >= _shares, "Insufficient shares");
+
+        // Calculate amount to return: (Shares / TotalShares) * Reserve
+        amount0 = (_shares * reserve0) / totalShares;
+        amount1 = (_shares * reserve1) / totalShares;
+
+        // Burn shares
+        balanceOf[msg.sender] -= _shares;
+        totalShares -= _shares;
+
+        // Transfer tokens out
+        token0.transfer(msg.sender, amount0);
+        token1.transfer(msg.sender, amount1);
+
+        // Update reserves
+        _updateReserves(token0.balanceOf(address(this)), token1.balanceOf(address(this)));
+    }
+
+    // ==========================================
+    //              SWAP FUNCTIONS
+    // ==========================================
+
+    /**
+     * @notice Swap Token0 for Token1
+     * @param _amountIn Amount of Token0 to sell
+     */
+    function swap0For1(uint256 _amountIn) external nonReentrant returns (uint256 amountOut) {
+        require(_amountIn > 0, "Amount must be > 0");
+        
+        // Pull Token0
+        token0.transferFrom(msg.sender, address(this), _amountIn);
+
+        // Calculate Amount Out (including
