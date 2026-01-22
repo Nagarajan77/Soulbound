@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+/**
+ * @title TokenCrowdsale
+ * @dev Allows investors to buy tokens with ETH at a fixed rate.
+ */
+contract TokenCrowdsale is Ownable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
+    IERC20 public token;       // The token being sold
+    address payable public wallet; // Address where funds are collected
+    uint256 public rate;       // How many tokens a user gets per 1 ETH
+    uint256 public weiRaised;  // Total amount of ETH raised
+    
+    uint256 public openingTime;
+    uint256 public closingTime;
+
+    event TokensPurchased(address indexed purchaser, uint256 value, uint256 amount);
+
+    /**
+     * @param _rate Number of token units a buyer gets per 1 wei.
+     * Example: If 1 ETH (10^18 wei) = 1000 Tokens (1000 * 10^18), 
+     * then rate = 1000.
+     * @param _wallet Address where collected ETH will be sent.
+     * @param _token Address of the token being sold.
+     * @param _durationInDays How long the sale lasts.
+     */
+    constructor(
+        uint256 _rate,
+        address payable _wallet,
+        IERC20 _token,
+        uint256 _durationInDays
+    ) Ownable(msg.sender) {
+        require(_rate > 0, "Rate is 0");
+        require(_wallet != address(0), "Wallet is the zero address");
+        require(address(_token) != address(0), "Token is the zero address");
+
+        rate = _rate;
+        wallet = _wallet;
+        token = _token;
+        
+        openingTime = block.timestamp;
+        closingTime = block.timestamp + (_durationInDays * 1 days);
+    }
+
+    /**
+     * @notice Buy tokens with ETH.
+     * @dev User sends ETH directly to this function.
+     */
+    function buyTokens() public payable nonReentrant {
+        require(block.timestamp >= openingTime, "Sale not started");
+        require(block.timestamp <= closingTime, "Sale ended");
+        require(msg.value > 0, "Send some ETH");
+
+        // Calculate token amount to be created
+        uint256 tokensToBuy = msg.value * rate;
+
+        // Ensure contract has enough tokens to sell
+        uint256 contractBalance = token.balanceOf(address(this));
+        require(contractBalance >= tokensToBuy, "Not enough tokens in reserve");
+
+        // Update state
+        weiRaised += msg.value;
+
+        // Transfer tokens to buyer
+        token.safeTransfer(msg.sender, tokensToBuy);
+
+        // Forward ETH to the project wallet immediately
+        // (Alternatively, you could keep it here until the goal is reached)
+        (bool success, ) = wallet.call{value: msg.value}("");
+        require(success, "ETH transfer failed");
+
+        emit TokensPurchased(msg.sender, msg.value, tokensToBuy);
+    }
+
+    /**
+     * @notice Allows the owner to withdraw any unsold tokens after the sale ends.
+     */
+    function withdrawUnsoldTokens() external onlyOwner {
+        require(block.timestamp > closingTime, "Sale not ended");
+        uint256 balance = token.balanceOf(address(this));
+        token.safeTransfer(
