@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Burnable.sol";
+
+/**
+ * @title SoulboundToken
+ * @dev An ERC721 Token that cannot be transferred once minted.
+ * It represents an identity, certification, or reputation attached to a specific address.
+ */
+contract SoulboundToken is ERC721, Ownable, ERC721Burnable {
+    uint256 private _nextTokenId;
+
+    constructor(address initialOwner)
+        ERC721("MySoulboundToken", "SBT")
+        Ownable(initialOwner)
+    {}
+
+    /**
+     * @notice Mints a new Soulbound Token to a specific address.
+     * @dev Only the contract owner can mint.
+     * @param to The address receiving the SBT.
+     */
+    function safeMint(address to) public onlyOwner {
+        uint256 tokenId = _nextTokenId++;
+        _safeMint(to, tokenId);
+    }
+
+    /**
+     * @notice Blocks standard transfers to make the token Soulbound.
+     * @dev This overrides the OpenZeppelin _update function (standard in v5.0+).
+     * It allows Minting (from 0x0) and Burning (to 0x0), but reverts on any other transfer.
+     */
+    function _update(address to, uint256 tokenId, address auth)
+        internal
+        override
+        returns (address)
+    {
+        address from = _ownerOf(tokenId);
+
+        // If 'from' is not the zero address (minting) AND 'to' is not the zero address (burning),
+        // then it is a transfer. We revert to block it.
+        if (from != address(0) && to != address(0)) {
+            revert("Soulbound: Transfer is not allowed");
+        }
+
+        return super._update(to, tokenId, auth);
+    }
+}
