@@ -30,26 +30,4 @@ If both are true, it means User A is trying to send to User B. We revert (cancel
 
 ERC721Burnable: We include this because sometimes a user wants to get rid of an SBT (e.g., they don't want a specific badge on their profile anymore). This allows them to send it to the "graveyard" (address 0), which our logic permits.
 
-Top Use Cases for Soulbound Tokens
-1. Academic Credentials
-A university can mint an SBT to a student's wallet representing their degree.
 
-Why SBT? You shouldn't be able to sell your Harvard degree on OpenSea. It must stay bound to the graduate.
-
-2. Credit Score / DeFi Reputation
-A protocol (like Aave or Compound) could issue an SBT to users who have a history of paying back loans on time.
-
-Why SBT? A high credit score shouldn't be transferable to a fresh wallet; it must represent the history of that specific user.
-
-3. Event Attendance (POAP)
-Proof of Attendance Protocol (POAP) badges show you were physically at an event.
-
-Why SBT? To prove you were there, not that you bought the badge from someone else later.
-
-4. Governance / Voting Power
-A DAO (Decentralized Autonomous Organization) can issue voting rights as SBTs.
-
-Why SBT? This prevents "vote buying," where a whale buys up thousands of governance tokens just to sway a single vote.
-
-Common Misconception
-"Soulbound means I can never lose it." This is false. If you lose your private keys (seed phrase), you lose access to the Soulbound token, just like any other crypto asset. Because it is non-transferable, you cannot "rescue" it by moving it to a new wallet. This is known as the "Key Rotation Problem" and is currently being solved by newer standards like "Social Recovery" wallets.
