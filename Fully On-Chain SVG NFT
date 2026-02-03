@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/utils/Base64.sol"; // Requires Base64 library
+
+contract OnChainNFT is ERC721 {
+    constructor() ERC721("OnChain", "SVG") {}
+
+    function mint() public {
+        _safeMint(msg.sender, 1); // Simplified ID
+    }
+
+    function tokenURI(uint256 tokenId) public pure override returns (string memory) {
+        // A simple red circle SVG
+        string memory svg = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><circle cx="50" cy="50" r="40" fill="red" /></svg>';
+        
+        string memory json = string(abi.encodePacked(
+            '{"name": "Red Circle", "image": "data:image/svg+xml;base64,',
+            Base64.encode(bytes(svg)),
+            '"}'
+        ));
+
+        return string(abi.encodePacked("data:application/json;base64,", Base64.encode(bytes(json))));
+    }
+}
