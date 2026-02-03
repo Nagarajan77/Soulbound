@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+
+contract MerkleNFT is ERC721 {
+    bytes32 public merkleRoot; // The root of your whitelist tree
+
+    constructor(bytes32 _merkleRoot) ERC721("MerkleNFT", "MNFT") {
+        merkleRoot = _merkleRoot;
+    }
+
+    function whitelistMint(bytes32[] calldata proof, uint256 tokenId) public {
+        // Verify that the msg.sender + tokenId is part of the merkle tree
+        bytes32 leaf = keccak256(abi.encodePacked(msg.sender, tokenId));
+        require(MerkleProof.verify(proof, merkleRoot, leaf), "Invalid proof");
+        
+        _safeMint(msg.sender, tokenId);
+    }
+}
